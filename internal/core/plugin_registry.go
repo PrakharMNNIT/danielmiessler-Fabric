@@ -286,14 +286,15 @@ func (o *PluginRegistry) runVendorSetup() (err error) {
 		return pluginSetupErr
 	}
 
-	if err = o.SaveEnvFile(); err != nil {
-		return
-	}
-
 	if o.VendorManager.FindByName(plugin.GetName()) == nil {
 		if vendor, ok := plugin.(ai.Vendor); ok {
 			o.VendorManager.AddVendors(vendor)
+			o.VendorManager.Models = nil
 		}
+	}
+
+	if err = o.SaveEnvFile(); err != nil {
+		return
 	}
 
 	return
@@ -347,14 +348,15 @@ func (o *PluginRegistry) runInteractiveSetup() (err error) {
 			if pluginSetupErr := plugin.Setup(); pluginSetupErr != nil {
 				println(pluginSetupErr.Error())
 			} else {
+				if vendor, ok := plugin.(ai.Vendor); ok {
+					if o.VendorManager.FindByName(plugin.GetName()) == nil {
+						o.VendorManager.AddVendors(vendor)
+					}
+					o.VendorManager.Models = nil
+				}
+
 				if err = o.SaveEnvFile(); err != nil {
 					break
-				}
-			}
-
-			if o.VendorManager.FindByName(plugin.GetName()) == nil {
-				if vendor, ok := plugin.(ai.Vendor); ok {
-					o.VendorManager.AddVendors(vendor)
 				}
 			}
 		} else {
@@ -420,8 +422,15 @@ func (o *PluginRegistry) validateSetup() {
 }
 
 func (o *PluginRegistry) SetupVendor(vendorName string) (err error) {
-	if err = o.VendorsAll.SetupVendor(vendorName, o.VendorManager.VendorsByName); err != nil {
+	configuredVendors := map[string]ai.Vendor{}
+	if err = o.VendorsAll.SetupVendor(vendorName, configuredVendors); err != nil {
 		return
+	}
+	if vendor := o.VendorsAll.FindByName(vendorName); vendor != nil {
+		if o.VendorManager.FindByName(vendor.GetName()) == nil {
+			o.VendorManager.AddVendors(vendor)
+		}
+		o.VendorManager.Models = nil
 	}
 	err = o.SaveEnvFile()
 	return

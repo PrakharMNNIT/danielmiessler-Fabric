@@ -25,7 +25,7 @@ func Cli(version string) (err error) {
 		return
 	}
 
-	if currentFlags.Setup {
+	if currentFlags.Setup || currentFlags.ConfigureProvider != "" || currentFlags.ConfigureModel || currentFlags.ChangeDefaultModel {
 		if err = ensureEnvFile(); err != nil {
 			return
 		}
