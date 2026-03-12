@@ -32,17 +32,25 @@ func TestSaveEnvFile(t *testing.T) {
 
 // testVendor implements ai.Vendor for testing purposes
 type testVendor struct {
-	name   string
-	models []string
+	name       string
+	models     []string
+	configured bool
+	envLine    string
 }
 
-func (m *testVendor) GetName() string                       { return m.name }
-func (m *testVendor) GetSetupDescription() string           { return m.name }
-func (m *testVendor) IsConfigured() bool                    { return true }
-func (m *testVendor) Configure() error                      { return nil }
-func (m *testVendor) Setup() error                          { return nil }
-func (m *testVendor) SetupFillEnvFileContent(*bytes.Buffer) {}
-func (m *testVendor) ListModels() ([]string, error)         { return m.models, nil }
+func (m *testVendor) GetName() string             { return m.name }
+func (m *testVendor) GetSetupDescription() string { return m.name }
+func (m *testVendor) IsConfigured() bool          { return m.configured }
+func (m *testVendor) Configure() error            { return nil }
+func (m *testVendor) Setup() error                { return nil }
+func (m *testVendor) SetupFillEnvFileContent(buf *bytes.Buffer) {
+	if m.envLine == "" {
+		return
+	}
+	buf.WriteString(m.envLine)
+	buf.WriteString("\n")
+}
+func (m *testVendor) ListModels() ([]string, error) { return m.models, nil }
 func (m *testVendor) SendStream([]*chat.ChatCompletionMessage, *domain.ChatOptions, chan domain.StreamUpdate) error {
 	return nil
 }
@@ -55,8 +63,8 @@ func TestGetChatter_WarnsOnAmbiguousModel(t *testing.T) {
 	tempDir := t.TempDir()
 	db := fsdb.NewDb(tempDir)
 
-	vendorA := &testVendor{name: "VendorA", models: []string{"shared-model"}}
-	vendorB := &testVendor{name: "VendorB", models: []string{"shared-model"}}
+	vendorA := &testVendor{name: "VendorA", models: []string{"shared-model"}, configured: true}
+	vendorB := &testVendor{name: "VendorB", models: []string{"shared-model"}, configured: true}
 
 	vm := ai.NewVendorsManager()
 	vm.AddVendors(vendorA, vendorB)
@@ -94,5 +102,45 @@ func TestGetChatter_WarnsOnAmbiguousModel(t *testing.T) {
 	}
 	if !strings.Contains(string(warning), "multiple vendors provide model shared-model") {
 		t.Fatalf("expected warning about multiple vendors, got %q", string(warning))
+	}
+}
+
+func TestSetupVendorPersistsSingleConfiguredVendor(t *testing.T) {
+	tempDir := t.TempDir()
+	db := fsdb.NewDb(tempDir)
+
+	registry, err := NewPluginRegistry(db)
+	if err != nil {
+		t.Fatalf("NewPluginRegistry() error = %v", err)
+	}
+
+	registry.VendorManager = ai.NewVendorsManager()
+	registry.VendorsAll = ai.NewVendorsManager()
+
+	vendor := &testVendor{
+		name:       "Bedrock",
+		models:     []string{"us.anthropic.claude-opus-4-6-v1"},
+		configured: true,
+		envLine:    "BEDROCK_API_KEY=test-token",
+	}
+	registry.VendorsAll.AddVendors(vendor)
+
+	if err = registry.SetupVendor("Bedrock"); err != nil {
+		t.Fatalf("SetupVendor() error = %v", err)
+	}
+
+	if got := registry.VendorManager.FindByName("Bedrock"); got == nil {
+		t.Fatalf("expected configured vendor to be registered in VendorManager")
+	}
+	if len(registry.VendorManager.Vendors) != 1 {
+		t.Fatalf("expected one configured vendor, got %d", len(registry.VendorManager.Vendors))
+	}
+
+	envContent, readErr := os.ReadFile(registry.Db.EnvFilePath)
+	if readErr != nil {
+		t.Fatalf("reading env file: %v", readErr)
+	}
+	if !strings.Contains(string(envContent), "BEDROCK_API_KEY=test-token") {
+		t.Fatalf("expected env file to persist configured vendor settings, got %q", string(envContent))
 	}
 }

@@ -10,14 +10,16 @@ import (
 )
 
 type stubVendor struct {
-	name string
+	name       string
+	configured bool
+	setupErr   error
 }
 
 func (v *stubVendor) GetName() string                       { return v.name }
 func (v *stubVendor) GetSetupDescription() string           { return "" }
-func (v *stubVendor) IsConfigured() bool                    { return true }
+func (v *stubVendor) IsConfigured() bool                    { return v.configured }
 func (v *stubVendor) Configure() error                      { return nil }
-func (v *stubVendor) Setup() error                          { return nil }
+func (v *stubVendor) Setup() error                          { return v.setupErr }
 func (v *stubVendor) SetupFillEnvFileContent(*bytes.Buffer) {}
 func (v *stubVendor) ListModels() ([]string, error)         { return nil, nil }
 func (v *stubVendor) SendStream([]*chat.ChatCompletionMessage, *domain.ChatOptions, chan domain.StreamUpdate) error {
@@ -30,7 +32,7 @@ func (v *stubVendor) NeedsRawMode(string) bool { return false }
 
 func TestVendorsManagerFindByNameCaseInsensitive(t *testing.T) {
 	manager := NewVendorsManager()
-	vendor := &stubVendor{name: "OpenAI"}
+	vendor := &stubVendor{name: "OpenAI", configured: true}
 
 	manager.AddVendors(vendor)
 
@@ -49,7 +51,7 @@ func TestVendorsManagerFindByNameCaseInsensitive(t *testing.T) {
 
 func TestVendorsManagerSetupVendorToCaseInsensitive(t *testing.T) {
 	manager := NewVendorsManager()
-	vendor := &stubVendor{name: "OpenAI"}
+	vendor := &stubVendor{name: "OpenAI", configured: true}
 
 	configured := map[string]Vendor{}
 	manager.setupVendorTo(vendor, configured)
@@ -62,5 +64,20 @@ func TestVendorsManagerSetupVendorToCaseInsensitive(t *testing.T) {
 	// Verify original case key is not used
 	if _, ok := configured["OpenAI"]; ok {
 		t.Fatalf("setupVendorTo should not store vendor using original case key")
+	}
+}
+
+func TestVendorsManagerSetupVendorRejectsIncompleteSetup(t *testing.T) {
+	manager := NewVendorsManager()
+	vendor := &stubVendor{name: "Bedrock", configured: false}
+	manager.AddVendors(vendor)
+
+	configured := map[string]Vendor{}
+	err := manager.SetupVendor("Bedrock", configured)
+	if err == nil {
+		t.Fatalf("SetupVendor should fail when setup completes without a valid configuration")
+	}
+	if _, ok := configured["bedrock"]; ok {
+		t.Fatalf("SetupVendor should not retain an incompletely configured vendor")
 	}
 }
