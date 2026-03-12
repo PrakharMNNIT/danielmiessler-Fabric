@@ -142,12 +142,20 @@ func (o *VendorsManager) SetupVendor(vendorName string, configuredVendors map[st
 		err = fmt.Errorf("%s", fmt.Sprintf(i18n.T("vendor_not_found"), vendorName))
 		return
 	}
-	o.setupVendorTo(vendor, configuredVendors)
+	if err = vendor.Setup(); err != nil {
+		delete(configuredVendors, strings.ToLower(vendor.GetName()))
+		return err
+	}
+	if !vendor.IsConfigured() {
+		delete(configuredVendors, strings.ToLower(vendor.GetName()))
+		return fmt.Errorf("vendor %q setup did not produce a valid configuration", vendor.GetName())
+	}
+	configuredVendors[strings.ToLower(vendor.GetName())] = vendor
 	return
 }
 
 func (o *VendorsManager) setupVendorTo(vendor Vendor, configuredVendors map[string]Vendor) {
-	if vendorErr := vendor.Setup(); vendorErr == nil {
+	if vendorErr := vendor.Setup(); vendorErr == nil && vendor.IsConfigured() {
 		fmt.Printf("%s\n", fmt.Sprintf(i18n.T("plugin_setup_configured"), vendor.GetName()))
 		configuredVendors[strings.ToLower(vendor.GetName())] = vendor
 	} else {

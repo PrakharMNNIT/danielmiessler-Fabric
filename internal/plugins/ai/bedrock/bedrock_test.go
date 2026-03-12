@@ -9,7 +9,6 @@ import (
 
 	"github.com/danielmiessler/fabric/internal/chat"
 	"github.com/danielmiessler/fabric/internal/domain"
-	"github.com/danielmiessler/fabric/internal/i18n"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/stretchr/testify/assert"
@@ -86,6 +85,43 @@ func TestConfigure_ValidRegion_BearerToken(t *testing.T) {
 	assert.NotNil(t, client.controlPlaneClient, "controlPlaneClient should be initialized")
 }
 
+func TestConfigure_BearerToken_UsesNativeBearerAuth(t *testing.T) {
+	t.Setenv("AWS_PROFILE", "")
+
+	client := NewClient()
+	client.bedrockRegion.Value = "us-east-1"
+	client.bedrockAPIKey.Value = "test-absk-token"
+
+	err := client.configure()
+	require.NoError(t, err)
+
+	runtimeOptions := client.runtimeClient.Options()
+	require.NotNil(t, runtimeOptions.BearerAuthTokenProvider, "runtime client should use a bearer token provider")
+	assert.Equal(t, []string{"httpBearerAuth"}, runtimeOptions.AuthSchemePreference, "runtime client should prefer bearer auth over SigV4")
+
+	token, err := runtimeOptions.BearerAuthTokenProvider.RetrieveBearerToken(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "test-absk-token", token.Value)
+
+	controlPlaneOptions := client.controlPlaneClient.Options()
+	require.NotNil(t, controlPlaneOptions.BearerAuthTokenProvider, "control-plane client should use a bearer token provider")
+	assert.Equal(t, []string{"httpBearerAuth"}, controlPlaneOptions.AuthSchemePreference, "control-plane client should prefer bearer auth over SigV4")
+}
+
+func TestConfigure_BearerToken_IgnoresAWSProfile(t *testing.T) {
+	t.Setenv("AWS_PROFILE", "bedrock")
+	t.Setenv("AWS_DEFAULT_PROFILE", "bedrock")
+
+	client := NewClient()
+	client.bedrockRegion.Value = "us-east-1"
+	client.bedrockAPIKey.Value = "test-absk-token"
+
+	err := client.configure()
+	assert.NoError(t, err, "configure() should ignore AWS_PROFILE when using a Bedrock API key")
+	assert.NotNil(t, client.runtimeClient, "runtimeClient should be initialized")
+	assert.NotNil(t, client.controlPlaneClient, "controlPlaneClient should be initialized")
+}
+
 func TestConfigure_ValidRegion_StaticCredentials(t *testing.T) {
 	t.Setenv("AWS_PROFILE", "")
 	client := NewClient()
@@ -96,6 +132,21 @@ func TestConfigure_ValidRegion_StaticCredentials(t *testing.T) {
 	err := client.configure()
 	assert.NoError(t, err, "configure() should succeed with valid region + access key + secret key")
 
+	assert.NotNil(t, client.runtimeClient, "runtimeClient should be initialized")
+	assert.NotNil(t, client.controlPlaneClient, "controlPlaneClient should be initialized")
+}
+
+func TestConfigure_StaticCredentials_IgnoresAWSProfile(t *testing.T) {
+	t.Setenv("AWS_PROFILE", "bedrock")
+	t.Setenv("AWS_DEFAULT_PROFILE", "bedrock")
+
+	client := NewClient()
+	client.bedrockRegion.Value = "us-west-2"
+	client.bedrockAccessKey.Value = "AKIAIOSFODNN7EXAMPLE"
+	client.bedrockSecretKey.Value = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+
+	err := client.configure()
+	assert.NoError(t, err, "configure() should ignore AWS_PROFILE when using explicit static credentials")
 	assert.NotNil(t, client.runtimeClient, "runtimeClient should be initialized")
 	assert.NotNil(t, client.controlPlaneClient, "controlPlaneClient should be initialized")
 }
@@ -126,8 +177,9 @@ func TestConfigure_BearerTokenPriority(t *testing.T) {
 	assert.NoError(t, err, "configure() should succeed when both auth methods are provided")
 
 	// We can't easily inspect which credential provider was used, but at least
-	// verify it initialized successfully (bearer token takes priority)
+	// verify bearer auth is configured and initialized successfully.
 	assert.NotNil(t, client.runtimeClient)
+	assert.Equal(t, []string{"httpBearerAuth"}, client.runtimeClient.Options().AuthSchemePreference)
 }
 
 func TestIsValidAWSRegion(t *testing.T) {
@@ -150,49 +202,6 @@ func TestIsValidAWSRegion(t *testing.T) {
 			assert.Equal(t, tt.expected, isValidAWSRegion(tt.region))
 		})
 	}
-}
-
-func TestBearerTokenTransport_InjectsHeader(t *testing.T) {
-	token := "test-absk-token-12345"
-
-	// Create a transport that records the request
-	var capturedReq *http.Request
-	mockTransport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		capturedReq = req
-		return &http.Response{StatusCode: 200}, nil
-	})
-
-	transport := &bearerTokenTransport{
-		token:   token,
-		wrapped: mockTransport,
-	}
-
-	req, _ := http.NewRequest("POST", "https://bedrock.us-east-1.amazonaws.com/model/invoke", nil)
-	req.Header.Set("X-Original", "preserved")
-
-	_, err := transport.RoundTrip(req)
-	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-
-	// Verify Authorization header is set
-	assert.Equal(t, "Bearer "+token, capturedReq.Header.Get("Authorization"))
-
-	// Verify original request is NOT modified (clone is used)
-	assert.Empty(t, req.Header.Get("Authorization"), "original request should not be modified")
-
-	// Verify other headers are preserved in clone
-	assert.Equal(t, "preserved", capturedReq.Header.Get("X-Original"))
-}
-
-func TestBearerTokenTransport_StringRedactsToken(t *testing.T) {
-	transport := &bearerTokenTransport{
-		token:   "super-secret-absk-key",
-		wrapped: http.DefaultTransport,
-	}
-
-	str := transport.String()
-	assert.Contains(t, str, "REDACTED")
-	assert.NotContains(t, str, "super-secret-absk-key", "token should not appear in String() output")
 }
 
 func TestDefaultBedrockModels_NotEmpty(t *testing.T) {
@@ -434,11 +443,4 @@ func TestFallbackRegions_NotEmpty(t *testing.T) {
 	for _, r := range fallbackRegions {
 		assert.True(t, isValidAWSRegion(r), "fallback region %q should be valid", r)
 	}
-}
-
-// roundTripFunc is a helper to create http.RoundTripper from a function
-type roundTripFunc func(req *http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
 }

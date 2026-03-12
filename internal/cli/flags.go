@@ -39,6 +39,8 @@ type Flags struct {
 	Session                         string               `long:"session" description:"Choose a session from the available sessions"`
 	Attachments                     []string             `short:"a" long:"attachment" description:"Attachment path or URL (e.g. for OpenAI image recognition messages)"`
 	Setup                           bool                 `short:"S" long:"setup" description:"Run setup for all reconfigurable parts of fabric"`
+	ConfigureProvider               string               `long:"configure-provider" description:"Configure a single AI provider and persist its settings"`
+	ConfigureModel                  bool                 `long:"configure-model" description:"Choose and persist the default provider/model"`
 	Temperature                     float64              `short:"t" long:"temperature" yaml:"temperature" description:"Set temperature" default:"0.7"`
 	TopP                            float64              `short:"T" long:"topp" yaml:"topp" description:"Set top P" default:"0.9"`
 	Stream                          bool                 `short:"s" long:"stream" yaml:"stream" description:"Stream"`
@@ -59,7 +61,7 @@ type Flags struct {
 	Output                          string               `short:"o" long:"output" description:"Output to file" default:""`
 	OutputSession                   bool                 `long:"output-session" description:"Output the entire session (also a temporary one) to the output file"`
 	LatestPatterns                  string               `short:"n" long:"latest" description:"Number of latest patterns to list" default:"0"`
-	ChangeDefaultModel              bool                 `short:"d" long:"changeDefaultModel" description:"Change default model"`
+	ChangeDefaultModel              bool                 `short:"d" long:"changeDefaultModel" description:"Change default model (legacy alias for --configure-model)"`
 	YouTube                         string               `short:"y" long:"youtube" description:"YouTube video or play list \"URL\" to grab transcript, comments from it and send to chat or print it put to the console and store it in the output file"`
 	YouTubePlaylist                 bool                 `long:"playlist" description:"Prefer playlist over video if both ids are present in the URL"`
 	YouTubeTranscript               bool                 `long:"transcript" description:"Grab transcript from YouTube video and send to chat (it is used per default)."`
