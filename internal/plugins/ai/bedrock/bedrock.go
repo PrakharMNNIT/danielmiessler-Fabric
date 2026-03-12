@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -416,16 +415,22 @@ func (c *BedrockClient) configure() error {
 					wrapped: http.DefaultTransport,
 				},
 			}),
+			config.WithSharedConfigFiles([]string{}),
+			config.WithSharedCredentialsFiles([]string{}),
 		)
 	} else if c.bedrockAccessKey.Value != "" && c.bedrockSecretKey.Value != "" {
 		// Priority 2: Explicit access key + secret key (static credentials)
-		configOpts = append(configOpts, config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(
-				c.bedrockAccessKey.Value,
-				c.bedrockSecretKey.Value,
-				"", // session token (empty for long-term credentials)
+		configOpts = append(configOpts,
+			config.WithCredentialsProvider(
+				credentials.NewStaticCredentialsProvider(
+					c.bedrockAccessKey.Value,
+					c.bedrockSecretKey.Value,
+					"", // session token (empty for long-term credentials)
+				),
 			),
-		))
+			config.WithSharedConfigFiles([]string{}),
+			config.WithSharedCredentialsFiles([]string{}),
+		)
 	}
 	// Priority 3: No explicit credentials → AWS SDK uses the default credential chain
 	// (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env vars, ~/.aws/credentials, IAM roles, etc.)
@@ -452,7 +457,7 @@ func (c *BedrockClient) ListModels() ([]string, error) {
 	if err != nil && c.bedrockAPIKey.Value != "" {
 		// Bearer token auth may lack ListFoundationModels permissions;
 		// return common models as fallback
-		debuglog.Log("Bedrock ListModels API failed (using static fallback): %v\n", err)
+		debuglog.Log(i18n.T("bedrock_listmodels_fallback")+": %v\n", err)
 		return defaultBedrockModels, nil
 	}
 	return models, err
