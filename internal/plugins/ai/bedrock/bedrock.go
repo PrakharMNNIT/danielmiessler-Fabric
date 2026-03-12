@@ -127,8 +127,7 @@ var fallbackRegions = []string{
 
 // botocoreEndpointsURL is the public (no-auth) source of truth for which AWS
 // regions support Bedrock, maintained by the AWS SDK team.
-// This is a var (not const) to allow test injection of a mock HTTP server URL.
-var botocoreEndpointsURL = "https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/endpoints.json"
+const botocoreEndpointsURL = "https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/endpoints.json"
 
 // fetchBedrockRegions fetches the list of AWS regions where Bedrock is available
 // from the botocore endpoints.json file (public, no authentication required).
@@ -137,13 +136,13 @@ func fetchBedrockRegions() []string {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(botocoreEndpointsURL)
 	if err != nil {
-		debuglog.Log(i18n.T("bedrock_fetch_regions_failed")+": %v\n", err)
+		debuglog.Log("Failed to fetch Bedrock regions from botocore: %v\n", err)
 		return fallbackRegions
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		debuglog.Log(i18n.T("bedrock_fetch_regions_bad_status")+": %d\n", resp.StatusCode)
+		debuglog.Log("Botocore endpoints returned status %d\n", resp.StatusCode)
 		return fallbackRegions
 	}
 
@@ -156,7 +155,7 @@ func fetchBedrockRegions() []string {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		debuglog.Log(i18n.T("bedrock_fetch_regions_parse_failed")+": %v\n", err)
+		debuglog.Log("Failed to parse botocore endpoints.json: %v\n", err)
 		return fallbackRegions
 	}
 
@@ -391,10 +390,20 @@ func (c *BedrockClient) configure() error {
 	// AWS SDK's SigV4 auth middleware. AnonymousCredentials causes the SDK to fall
 	// through to its bearer token auth path, which panics without a token provider.
 	// Our bearerTokenTransport overrides the Authorization header with the real token.
-	// When using explicit credentials (bearer token or static keys), bypass the
-	// AWS shared config/credentials files to prevent AWS_PROFILE env var from
-	// causing "failed to get shared config profile" errors. This is thread-safe
-	// (no process-global env mutation) and only affects this config load.
+	// When using explicit credentials (bearer token or static keys), temporarily
+	// clear AWS_PROFILE to prevent the SDK from trying to load a shared config
+	// profile that may not exist. This is a real-world issue: users with
+	// AWS_PROFILE set for other tools (terraform, aws-cli) would get
+	// "failed to get shared config profile" errors even though they provided
+	// credentials directly.
+	explicitCreds := c.bedrockAPIKey.Value != "" || (c.bedrockAccessKey.Value != "" && c.bedrockSecretKey.Value != "")
+	if explicitCreds {
+		if savedProfile, hasProfile := os.LookupEnv("AWS_PROFILE"); hasProfile {
+			os.Unsetenv("AWS_PROFILE")
+			defer os.Setenv("AWS_PROFILE", savedProfile)
+		}
+	}
+
 	if c.bedrockAPIKey.Value != "" {
 		configOpts = append(configOpts,
 			config.WithCredentialsProvider(
