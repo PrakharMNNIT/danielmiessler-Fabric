@@ -223,6 +223,7 @@ func (o *Client) NeedsRawMode(modelName string) bool {
 	openaiModelsPrefixes := []string{
 		"glm",
 		"gpt-5",
+		"gpt-6",
 		"o1",
 		"o3",
 		"o4",
