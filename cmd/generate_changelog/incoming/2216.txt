@@ -1,3 +1,0 @@
-### PR [#2216](https://github.com/danielmiessler/Fabric/pull/2216) by [ctbaum](https://github.com/ctbaum): fix: enable raw mode for GPT-6 models
-
-- Fix: enable raw mode for GPT-6 models

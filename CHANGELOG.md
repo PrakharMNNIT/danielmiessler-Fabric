@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.478 (2026-09-06)
+
+### PR [#2216](https://github.com/danielmiessler/Fabric/pull/2216) by [ctbaum](https://github.com/ctbaum): fix: enable raw mode for GPT-6 models
+
+- Fix: enable raw mode for GPT-6 models
+
 ## v1.4.477 (2026-09-03)
 
 ### PR [#2211](https://github.com/danielmiessler/Fabric/pull/2211) by [ksylvan](https://github.com/ksylvan): fix: prevent pattern loader temporary directory leaks
